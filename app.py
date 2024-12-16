@@ -1,33 +1,26 @@
 import os
 import streamlit as st
-from PyPDF2 import PdfReader
+import time
+from helpers import process_pdf, save_uploaded_file, create_vector_space
 
-# Helper function to process PDF
-def process_pdf(uploaded_file):
-    reader = PdfReader(uploaded_file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    return text
-
-# Initialize sidebar state if it doesn't exist
-if "sidebar_open" not in st.session_state:
-    st.session_state.sidebar_open = True
-
-# Initialize conversations state
+# Initialize session states
 if 'conversations' not in st.session_state:
     st.session_state.conversations = {}
-
-# Initialize current session state
-if "current_session" not in st.session_state:
+if 'current_session' not in st.session_state:
     st.session_state.current_session = None
+if 'uploaded_files' not in st.session_state:
+    st.session_state.uploaded_files = []
+if 'processed_files' not in st.session_state:
+    st.session_state.processed_files = []
 
 # Helper function to start a new conversation
 def start_new_conversation():
     session_name = f"Conversation {len(st.session_state.conversations) + 1}"
     st.session_state.conversations[session_name] = []
     st.session_state.current_session = session_name
-    st.success(f"Started new session: {session_name}")
+    with st.empty():
+        st.success(f"Started new session: {session_name}")
+        time.sleep(3)
 
 # Helper function to save messages to conversation history
 def save_message_to_conversation(session_name, role, message):
@@ -37,32 +30,35 @@ def save_message_to_conversation(session_name, role, message):
 with st.sidebar:
     st.title("Conversation History")
 
-    # Add the upload file button at the top
-    uploaded_file = st.file_uploader("Upload a file", type=["pdf"])
-    if uploaded_file is not None:
-        st.write(f"Uploaded file: {uploaded_file.name}")
-        st.write(f"File type: {uploaded_file.type}")
-        st.write(f"File size: {uploaded_file.size} bytes")
+    uploaded_files = st.file_uploader("Upload files", type=["pdf"], accept_multiple_files=True)
 
-        # Process and preview PDF
-        if uploaded_file.type == "application/pdf":
-            st.success("PDF file loaded successfully!")
+    if uploaded_files:
+        st.session_state.uploaded_files = []
+        for uploaded_file in uploaded_files:
+            if uploaded_file.name not in st.session_state.uploaded_files:
+                st.session_state.uploaded_files.append(uploaded_file.name)
+                save_path = save_uploaded_file(uploaded_file)
+                with st.empty():
+                    st.success(f"File saved to {save_path}")
+                    time.sleep(3)
+            # Process and preview PDF content
             pdf_text = process_pdf(uploaded_file)
+            st.write(f"Uploaded file: {uploaded_file.name}")
+            st.write(f"File size: {uploaded_file.size} bytes")
             st.write("Preview of the file content:")
-            st.write(pdf_text[:500])  # Display first 500 characters
+            st.write(pdf_text[:500])
 
-            # Ensure the uploads directory exists
-            upload_dir = "uploads"
-            if not os.path.exists(upload_dir):
-                os.makedirs(upload_dir)
-
-            # Save the uploaded PDF locally
-            save_path = os.path.join(upload_dir, uploaded_file.name)
-            with open(save_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
-            st.success(f"File saved to {save_path}")
-        else:
-            st.error("The uploaded file is not a PDF.")
+    # Add a process button to read all uploaded files
+    if st.button("Process Uploaded Files"):
+        st.session_state.processed_files = [
+            {
+                "name": uploaded_file.name,
+                "content": process_pdf(uploaded_file)
+            } for uploaded_file in uploaded_files
+        ]
+        with st.empty():
+            st.success("Files processed successfully!")
+            time.sleep(3)
 
     # Add the "Start New Conversation" button below the file uploader
     if st.button("Start New Conversation"):
@@ -88,25 +84,26 @@ else:
 
 # Accept user input if a conversation is active
 if current_session:
-    if prompt := st.chat_input("What is up?"):
-        # Save user message
+    prompt = st.chat_input("What is up?")
+    if prompt:
         save_message_to_conversation(current_session, "user", prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Retrieve relevant documents based on the user input
-        # For simplicity, we simulate the retrieval here
-        retrieved_docs = f"Relevant content for: {prompt}"  # This would be a placeholder for actual RAG model processing
+        ########################################## temporary solution ##########################################
+        # Generate assistant response based on the processed PDF content or state if no documents are uploaded
+        if 'processed_files' in st.session_state and len(st.session_state.processed_files) > 0:
+            pdf_texts = ""
+            for file_info in st.session_state.processed_files:
+                pdf_texts += f"\n\n--- Content from {file_info['name']} ---\n\n{file_info['content'][:500]}"
+            response_text = f"This is a response based on the content of the uploaded documents:{pdf_texts}"
+        else:
+            response_text = "No documents uploaded. This is a response without any document context."
+        ########################################## temporary solution ##########################################
 
-        # Generate assistant response (simulated in this case)
-        response_text = f"This is a simulated response based on the documents: {retrieved_docs}"
-
-        # Display assistant's response
         with st.chat_message("assistant"):
-            response_container = st.empty()
-            response_container.markdown(response_text)
+            st.markdown(response_text)
 
-        # Save the assistant's response
         save_message_to_conversation(current_session, "assistant", response_text)
 else:
     st.write("Please start or select a conversation from the sidebar to begin chatting.")
