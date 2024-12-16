@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 import time
-from helpers import process_pdf, save_uploaded_file, create_vector_space
+from query_handler import process_pdf, save_uploaded_file, handle_query
 
 # Initialize session states
 if 'conversations' not in st.session_state:
@@ -91,14 +91,21 @@ if current_session:
             st.markdown(prompt)
 
         ########################################## temporary solution ##########################################
-        # Generate assistant response based on the processed PDF content or state if no documents are uploaded
-        if 'processed_files' in st.session_state and len(st.session_state.processed_files) > 0:
-            pdf_texts = ""
-            for file_info in st.session_state.processed_files:
-                pdf_texts += f"\n\n--- Content from {file_info['name']} ---\n\n{file_info['content'][:500]}"
-            response_text = f"This is a response based on the content of the uploaded documents:{pdf_texts}"
+        # Generate assistant response using retrieval
+        if 'uploaded_files' in st.session_state and len(st.session_state.uploaded_files) > 0:
+            # Perform query handling and retrieval
+            upload_folder = "uploads"  # Path to the folder where uploaded files are saved
+            status, results = handle_query(upload_folder, prompt)
+
+            if results:
+                response_text = "Here are the most relevant documents:\n\n"
+                for doc, score in results:
+                    response_text += f"--- Score: {score:.2f} ---\n{doc[:500]}\n\n"
+            else:
+                response_text = status
         else:
-            response_text = "No documents uploaded. This is a response without any document context."
+            response_text = "No documents uploaded. Please upload documents to enable retrieval."
+
         ########################################## temporary solution ##########################################
 
         with st.chat_message("assistant"):
